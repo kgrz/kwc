@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"runtime"
@@ -31,7 +30,7 @@ func main() {
 
 func processBuffer(ci chunkInfo, f *os.File) {
 	totalRunsNeeded := int(ci.size / BufferSize)
-	counts := make([]Counts, totalRunsNeeded)
+	bufStates := make([]bufferState, totalRunsNeeded)
 	for index := 0; index < totalRunsNeeded; index++ {
 		// make a buffer of size 8192
 		buf := make([]byte, BufferSize)
@@ -39,7 +38,7 @@ func processBuffer(ci chunkInfo, f *os.File) {
 		// TODO: we may have to read from the next byte. Need to check how offset works
 		offset := ci.offset + int64(index*BufferSize)
 		f.ReadAt(buf, offset)
-		counts[index] = countBuffer(buf)
+		bufStates[index] = countBuffer(buf)
 	}
 }
 
@@ -63,15 +62,9 @@ func findOffsets(f *os.File) []chunkInfo {
 	return ci
 }
 
-// Counts contains the snapshot of the Word, Line, Char counts after the file is
-// processed.
-type Counts struct {
-	Words, Lines, Chars int
-	FirstChar, LastChar byte
-}
-
-func (c Counts) String() string {
-	return fmt.Sprintf("line count: %d\nword count: %d\nchar count: %d", c.Lines, c.Words, c.Chars)
+type bufferState struct {
+	words, lines, chars int
+	firstChar, lastChar byte
 }
 
 func isSpace(char byte) bool {
@@ -83,37 +76,37 @@ func isNewLine(char byte) bool {
 }
 
 // Implements the main character, word, line counting routines.
-func countBuffer(buf []byte) Counts {
-	var count Counts
+func countBuffer(buf []byte) bufferState {
+	var bs bufferState
 	bufSize := len(buf)
-	count.Chars += utf8.RuneCount(buf)
-	count.LastChar = buf[bufSize-1]
-	count.FirstChar = buf[0]
+	bs.chars += utf8.RuneCount(buf)
+	bs.lastChar = buf[bufSize-1]
+	bs.firstChar = buf[0]
 
 	var isPrevCharSpace bool
 
 	// Special case for the first character. If it's a space, then set the
 	// previous char pointer to true.
-	count.Chars++
-	if isSpace(count.FirstChar) || isNewLine(count.FirstChar) {
+	bs.chars++
+	if isSpace(bs.firstChar) || isNewLine(bs.firstChar) {
 		isPrevCharSpace = true
 	} else {
 		isPrevCharSpace = false
 	}
 
-	if isNewLine(count.FirstChar) {
-		count.Lines++
+	if isNewLine(bs.firstChar) {
+		bs.lines++
 	}
 
 	for i := 1; i < bufSize; i++ {
 		// For each line, start from the second byte from the slice
 		char := buf[i]
 		if isNewLine(char) {
-			count.Lines++
+			bs.lines++
 		}
 		if isSpace(char) || isNewLine(char) {
 			if !isPrevCharSpace {
-				count.Words++
+				bs.words++
 			}
 			isPrevCharSpace = true
 		} else {
@@ -122,10 +115,10 @@ func countBuffer(buf []byte) Counts {
 	}
 
 	// If the previous character (last of the line) is not a space, increment
-	// the word count, but only if the line has some characters.
+	// the word bs, but only if the line has some characters.
 	if !isPrevCharSpace {
-		count.Words++
+		bs.words++
 	}
 
-	return count
+	return bs
 }

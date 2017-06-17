@@ -31,6 +31,7 @@ func main() {
 
 func processBuffer(ci chunkInfo, f *os.File) {
 	totalRunsNeeded := int(ci.size / BufferSize)
+	counts := make([]Counts, totalRunsNeeded)
 	for index := 0; index < totalRunsNeeded; index++ {
 		// make a buffer of size 8192
 		buf := make([]byte, BufferSize)
@@ -38,8 +39,7 @@ func processBuffer(ci chunkInfo, f *os.File) {
 		// TODO: we may have to read from the next byte. Need to check how offset works
 		offset := ci.offset + int64(index*BufferSize)
 		f.ReadAt(buf, offset)
-		counts := countBuffer(buf)
-		fmt.Println(counts)
+		counts[index] = countBuffer(buf)
 	}
 }
 
@@ -66,9 +66,8 @@ func findOffsets(f *os.File) []chunkInfo {
 // Counts contains the snapshot of the Word, Line, Char counts after the file is
 // processed.
 type Counts struct {
-	Words int
-	Lines int
-	Chars int
+	Words, Lines, Chars int
+	FirstChar, LastChar byte
 }
 
 func (c Counts) String() string {
@@ -88,19 +87,21 @@ func countBuffer(buf []byte) Counts {
 	var count Counts
 	bufSize := len(buf)
 	count.Chars += utf8.RuneCount(buf)
+	count.LastChar = buf[bufSize-1]
+	count.FirstChar = buf[0]
 
 	var isPrevCharSpace bool
 
 	// Special case for the first character. If it's a space, then set the
 	// previous char pointer to true.
 	count.Chars++
-	if isSpace(buf[0]) || isNewLine(buf[0]) {
+	if isSpace(count.FirstChar) || isNewLine(count.FirstChar) {
 		isPrevCharSpace = true
 	} else {
 		isPrevCharSpace = false
 	}
 
-	if isNewLine(buf[0]) {
+	if isNewLine(count.FirstChar) {
 		count.Lines++
 	}
 
@@ -120,9 +121,8 @@ func countBuffer(buf []byte) Counts {
 		}
 	}
 
-	// all the bytes until the last one on a line have been counted. If the
-	// previous character (last of the line) is not a space, increment the word
-	// count, but only if the line has some characters.
+	// If the previous character (last of the line) is not a space, increment
+	// the word count, but only if the line has some characters.
 	if !isPrevCharSpace {
 		count.Words++
 	}

@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"sync"
 )
 
 func handle(err error) {
@@ -17,16 +18,38 @@ type chunkInfo struct {
 	offset, size int64
 }
 
+var wg sync.WaitGroup
+
 const BufferSize = 8192
 
 func main() {
-	f, err := os.Open("out.txt")
-	handle(err)
-	offsets := findOffsets(f)
-	bufStates := make(bufferStates, len(offsets))
-	for i, offset := range offsets {
-		bufStates[i] = processBuffer(offset, f)
+	if len(os.Args) < 2 {
+		log.Fatal("Wrong number of arguments. Basic usage: go run main.go <filename>")
 	}
+
+	if len(os.Args) > 2 {
+		fmt.Printf("Warning: Multile files are not supported yet. Using the first one.\n\n")
+	}
+
+	filename := os.Args[1]
+	f, err := os.Open(filename)
+	handle(err)
+	defer f.Close()
+
+	cpuCount := runtime.NumCPU()
+	offsets := findOffsets(f, cpuCount)
+	bufStates := make(bufferStates, cpuCount)
+	wg.Add(cpuCount)
+
+	for i, offset := range offsets {
+		off := offset
+		index := i
+		go func() {
+			bufStates[index] = processBuffer(off, f)
+		}()
+	}
+
+	wg.Wait()
 
 	finalState := bufStates.reduce(bufferState{})
 	fmt.Println("words: ", finalState.words)
@@ -35,13 +58,15 @@ func main() {
 }
 
 func processBuffer(ci chunkInfo, f *os.File) bufferState {
+	defer wg.Done()
 	totalRunsNeeded := int(ci.size / BufferSize)
 	bufStates := make(bufferStates, totalRunsNeeded)
 	for index := 0; index < totalRunsNeeded; index++ {
 		// make a buffer of size 8192
 		buf := make([]byte, BufferSize)
-		// We get the offset based on the actual offset and bytes read in this iteration func.
-		// TODO: we may have to read from the next byte. Need to check how offset works
+		// We get the offset based on the actual offset and bytes read in this
+		// iteration func. TODO: we may have to read from the next byte. Need
+		// to check how offset works
 		offset := ci.offset + int64(index*BufferSize)
 		f.ReadAt(buf, offset)
 		bufStates[index] = countBuffer(buf)
@@ -50,11 +75,10 @@ func processBuffer(ci chunkInfo, f *os.File) bufferState {
 	return finalState
 }
 
-func findOffsets(f *os.File) []chunkInfo {
+func findOffsets(f *os.File, bufCount int) []chunkInfo {
 	fileinfo, err := f.Stat()
 	handle(err)
 	fileSize := fileinfo.Size()
-	bufCount := runtime.NumCPU()
 	ci := make([]chunkInfo, bufCount)
 
 	size := fileSize / int64(bufCount)

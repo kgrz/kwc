@@ -1,10 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"runtime"
-	"unicode/utf8"
 )
 
 func handle(err error) {
@@ -23,14 +23,20 @@ func main() {
 	f, err := os.Open("out.txt")
 	handle(err)
 	offsets := findOffsets(f)
-	for _, offset := range offsets {
-		processBuffer(offset, f)
+	bufStates := make(bufferStates, len(offsets))
+	for i, offset := range offsets {
+		bufStates[i] = processBuffer(offset, f)
 	}
+
+	finalState := bufStates.reduce(bufferState{})
+	fmt.Println("words: ", finalState.words)
+	fmt.Println("chars: ", finalState.chars)
+	fmt.Println("lines: ", finalState.lines)
 }
 
-func processBuffer(ci chunkInfo, f *os.File) {
+func processBuffer(ci chunkInfo, f *os.File) bufferState {
 	totalRunsNeeded := int(ci.size / BufferSize)
-	bufStates := make([]bufferState, totalRunsNeeded)
+	bufStates := make(bufferStates, totalRunsNeeded)
 	for index := 0; index < totalRunsNeeded; index++ {
 		// make a buffer of size 8192
 		buf := make([]byte, BufferSize)
@@ -40,6 +46,8 @@ func processBuffer(ci chunkInfo, f *os.File) {
 		f.ReadAt(buf, offset)
 		bufStates[index] = countBuffer(buf)
 	}
+	finalState := bufStates.reduce(bufferState{})
+	return finalState
 }
 
 func findOffsets(f *os.File) []chunkInfo {
@@ -118,7 +126,7 @@ func isWordDelim(char byte) bool {
 func countBuffer(buf []byte) bufferState {
 	var bs bufferState
 	bufSize := len(buf)
-	bs.chars += utf8.RuneCount(buf)
+	bs.chars += bufSize
 	bs.lastChar = buf[bufSize-1]
 	bs.firstChar = buf[0]
 

@@ -13,7 +13,7 @@ starting from that offset.
 
 
 Couple of problems:
-==================
+------------------
 
 1. I'm pretty sure I'm doing the offset calculation part wrong. Will
    revisit it later.
@@ -33,9 +33,10 @@ a 1.9GB file, and this is the result:
 
 Wrong result, but hey, it's fast™ 🤷🏽‍♂️
 
+Bonus bug! Current implementation has a race condition because the go rountine inside main() returns immediately, and the reduce function operates on the `bufStates` slice! 
 
 Learnings:
-=========
+---------
 
 1. The readAt Go function internally uses the `pread` syscall which
 works well with multi-threaded access of the same file: http://man7.org/linux/man-pages/man2/pread.2.html

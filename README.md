@@ -32,3 +32,10 @@ a 1.9GB file, and this is the result:
 
 
 Wrong result, but hey, it's fast™ 🤷🏽‍♂️
+
+
+Learnings:
+=========
+
+1. The readAt Go function internally uses the `pread` syscall which
+works well with multi-threaded access of the same file: http://man7.org/linux/man-pages/man2/pread.2.html

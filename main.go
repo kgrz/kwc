@@ -18,6 +18,10 @@ type chunkInfo struct {
 	offset, size int64
 }
 
+func (ci chunkInfo) String() string {
+	return fmt.Sprintf("offset: %d, length: %d", ci.offset, ci.size)
+}
+
 var wg sync.WaitGroup
 
 const BufferSize = 8192
@@ -59,17 +63,40 @@ func main() {
 
 func processBuffer(ci chunkInfo, f *os.File) bufferState {
 	defer wg.Done()
-	totalRunsNeeded := int(ci.size / BufferSize)
-	bufStates := make(bufferStates, totalRunsNeeded)
-	for index := 0; index < totalRunsNeeded; index++ {
+	runs := int(ci.size / BufferSize)
+	leftOverBytes := int(ci.size % BufferSize)
+	var buffers int
+	if leftOverBytes > 0 {
+		buffers = runs + 1
+	} else {
+		buffers = runs
+	}
+	bufStates := make(bufferStates, buffers)
+	for index := 0; index < runs; index++ {
 		// make a buffer of size 8192
 		buf := make([]byte, BufferSize)
 		// We get the offset based on the actual offset and bytes read in this
 		// iteration func. TODO: we may have to read from the next byte. Need
 		// to check how offset works
 		offset := ci.offset + int64(index*BufferSize)
-		f.ReadAt(buf, offset)
+		_, err := f.ReadAt(buf, offset)
+		if err != nil {
+			log.Fatal(err)
+		}
 		bufStates[index] = countBuffer(buf)
+	}
+	// TODO: Fold this into the loop above
+	if leftOverBytes > 0 {
+		buf := make([]byte, leftOverBytes)
+		// We get the offset based on the actual offset and bytes read in this
+		// iteration func. TODO: we may have to read from the next byte. Need
+		// to check how offset works
+		offset := ci.offset + int64(runs*BufferSize)
+		_, err := f.ReadAt(buf, offset)
+		if err != nil {
+			log.Fatal(err)
+		}
+		bufStates[buffers-1] = countBuffer(buf)
 	}
 	finalState := bufStates.reduce(bufferState{})
 	return finalState

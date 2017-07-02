@@ -22,9 +22,9 @@ func (ci chunkInfo) String() string {
 	return fmt.Sprintf("offset: %d, length: %d", ci.offset, ci.size)
 }
 
-var wg sync.WaitGroup
-
 const BufferSize = 8192
+
+var wg sync.WaitGroup
 
 func main() {
 	if len(os.Args) < 2 {
@@ -42,27 +42,38 @@ func main() {
 
 	cpuCount := runtime.NumCPU()
 	offsets := findOffsets(f, cpuCount)
-	bufStates := make(bufferStates, cpuCount)
-	wg.Add(cpuCount)
+	var finalState bufferState
 
-	for i, offset := range offsets {
-		off := offset
-		index := i
-		go func() {
-			bufStates[index] = processBuffer(off, f)
-		}()
+	// Fast loop if there is only one offset. This will be the case when the file size is smaller than BufferSize. Check findOffsets for more details
+	if len(offsets) > 1 {
+		bufStates := make(bufferStates, cpuCount)
+		wg.Add(cpuCount)
+
+		for i, offset := range offsets {
+			off := offset
+			index := i
+			go func() {
+				bufStates[index] = processBuffer(off, f, true)
+			}()
+		}
+
+		wg.Wait()
+		finalState = bufStates.reduce(bufferState{})
+	} else {
+		finalState = processBuffer(offsets[0], f, false)
 	}
 
-	wg.Wait()
-
-	finalState := bufStates.reduce(bufferState{})
-	fmt.Println("words: ", finalState.words)
 	fmt.Println("chars: ", finalState.chars)
+	fmt.Println("words: ", finalState.words)
 	fmt.Println("lines: ", finalState.lines)
 }
 
-func processBuffer(ci chunkInfo, f *os.File) bufferState {
-	defer wg.Done()
+func processBuffer(ci chunkInfo, f *os.File, syncNeeded bool) bufferState {
+	// This is fugly. The synchronisation should be done on the type, rather
+	// than as a hacky flag.
+	if syncNeeded {
+		defer wg.Done()
+	}
 	runs := int(ci.size / BufferSize)
 	leftOverBytes := int(ci.size % BufferSize)
 	var buffers int
@@ -106,6 +117,17 @@ func findOffsets(f *os.File, bufCount int) []chunkInfo {
 	fileinfo, err := f.Stat()
 	handle(err)
 	fileSize := fileinfo.Size()
+	// If the file size is smaller than the buffer size, just create one chunk.
+	// This avoids useless synchronisation cost. Even this is not optimal. This
+	// will still use mutiple CPUs for a file with size 8193 bytes. Ideally,
+	// this threshold value should be obtained by running it on a true
+	// multicore machine on files of different sizes.
+	if fileSize < BufferSize {
+		ci := make([]chunkInfo, 1)
+		ci[0] = chunkInfo{size: fileSize, offset: 0}
+		return ci
+	}
+
 	ci := make([]chunkInfo, bufCount)
 
 	size := fileSize / int64(bufCount)

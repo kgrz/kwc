@@ -13,8 +13,8 @@ in chunks.
 starting from that offset.
 
 
-Couple of problems:
-------------------
+Some problems:
+--------------
 
 1. I'm pretty sure I'm doing the offset calculation part wrong. Will
    revisit it later.
@@ -23,7 +23,8 @@ Couple of problems:
    counted as two separate words! If we use `utf8.RuneCount()` on a
    slice that has a partial multi-byte word, that count can end up being
    wrong. I don't yet have a solution for this.
-
+3. Can't deal with words in binary files. The char count, and line
+   count are correct.
 
 But the speed seems amazing! I ran this program, and the GNU `wc`
 program, and https://github.com/kgrz/wc program on a 16 core machine on

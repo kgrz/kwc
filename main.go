@@ -19,7 +19,7 @@ type chunkInfo struct {
 }
 
 func (ci chunkInfo) String() string {
-	return fmt.Sprintf("offset: %d, length: %d", ci.offset, ci.size)
+	return fmt.Sprintf("offset: %d, size: %d", ci.offset, ci.size)
 }
 
 const BufferSize = 8192
@@ -132,12 +132,14 @@ func findOffsets(f *os.File, bufCount int) []chunkInfo {
 
 	size := fileSize / int64(bufCount)
 	remainder := fileSize % int64(bufCount)
+	var offset int64
 
 	for i := 0; i < bufCount; i++ {
 		if i == bufCount-1 {
 			size = size + remainder
 		}
-		ci[i] = chunkInfo{size: size, offset: size * int64(i)}
+		ci[i] = chunkInfo{size: size, offset: offset}
+		offset += size
 	}
 
 	return ci

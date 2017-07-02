@@ -1,6 +1,7 @@
 wcc
 ====
 
+Warning: Code in here is crap, don't read it.
 
 A borken attempt at file offset-based `wc` implementation. Outline of
 the attempt is:

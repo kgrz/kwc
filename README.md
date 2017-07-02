@@ -13,6 +13,8 @@ in chunks.
 starting from that offset.
 
 
+__Mostly works on plain text files on *nix machines__
+
 Some problems:
 --------------
 

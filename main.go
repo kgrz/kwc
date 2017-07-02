@@ -167,7 +167,7 @@ func (bxs bufferStates) reduce(initialState bufferState) bufferState {
 			// state if past buffer cut off some word partially. If the last char
 			// in previous buffer and the first char in current buffer are not
 			// spaces, we have counted two words, so reduce it by one
-			if !isWordDelim(previousState.lastChar) && !isWordDelim(bufState.firstChar) {
+			if !isSpace(previousState.lastChar) && !isSpace(bufState.firstChar) {
 				finalState.words--
 			}
 		}
@@ -186,15 +186,18 @@ func (bxs bufferStates) reduce(initialState bufferState) bufferState {
 }
 
 func isSpace(char byte) bool {
-	return char == 32 || char == 9
+	// According to manpages, a space is one of:
+	// space
+	// horizontal tab
+	// vertical tab
+	// carriage return
+	// new line
+	// form feed
+	return char == 32 || char == 9 || char == 11 || char == 13 || char == 10 || char == 12
 }
 
 func isNewLine(char byte) bool {
 	return char == 10
-}
-
-func isWordDelim(char byte) bool {
-	return isSpace(char) || isNewLine(char)
 }
 
 // Implements the main character, word, line counting routines.
@@ -209,7 +212,7 @@ func countBuffer(buf []byte) bufferState {
 
 	// Special case for the first character. If it's a space, then set the
 	// previous char pointer to true.
-	if isSpace(bs.firstChar) || isNewLine(bs.firstChar) {
+	if isSpace(bs.firstChar) {
 		isPrevCharSpace = true
 	} else {
 		isPrevCharSpace = false
@@ -225,7 +228,7 @@ func countBuffer(buf []byte) bufferState {
 		if isNewLine(char) {
 			bs.lines++
 		}
-		if isSpace(char) || isNewLine(char) {
+		if isSpace(char) {
 			if !isPrevCharSpace {
 				bs.words++
 			}

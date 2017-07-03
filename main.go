@@ -46,6 +46,7 @@ func main() {
 
 	// Fast loop if there is only one offset. This will be the case when the file size is smaller than BufferSize. Check findOffsets for more details
 	if len(offsets) > 1 {
+		fmt.Printf("Using %d cores\n\n", cpuCount)
 		bufStates := make(bufferStates, cpuCount)
 		wg.Add(cpuCount)
 
@@ -193,7 +194,9 @@ func isSpace(char byte) bool {
 	// carriage return
 	// new line
 	// form feed
-	return char == 32 || char == 9 || char == 11 || char == 13 || char == 10 || char == 12
+	// NEL
+	// NBSP
+	return char == 32 || char == 9 || char == 11 || char == 13 || char == 10 || char == 12 || char == 0x85 || char == 0xA0
 }
 
 func isNewLine(char byte) bool {

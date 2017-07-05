@@ -54,17 +54,15 @@ func main() {
 			off := offset
 			index := i
 			go func() {
-				bufStates[index] = processBuffer(off, f, true)
+				bufStates[index] = processBuffer(off, f)
+				wg.Done()
 			}()
 		}
 
-		go func() {
-			wg.Wait()
-		}()
-
+		wg.Wait()
 		finalState = bufStates.reduce(bufferState{})
 	} else {
-		finalState = processBuffer(offsets[0], f, false)
+		finalState = processBuffer(offsets[0], f)
 	}
 
 	fmt.Println("chars: ", finalState.chars)
@@ -72,12 +70,7 @@ func main() {
 	fmt.Println("lines: ", finalState.lines)
 }
 
-func processBuffer(ci chunkInfo, f *os.File, syncNeeded bool) bufferState {
-	// This is fugly. The synchronisation should be done on the type, rather
-	// than as a hacky flag.
-	if syncNeeded {
-		defer wg.Done()
-	}
+func processBuffer(ci chunkInfo, f *os.File) bufferState {
 	runs := int(ci.size / BufferSize)
 	leftOverBytes := int(ci.size % BufferSize)
 	var buffers int

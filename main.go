@@ -71,18 +71,21 @@ func main() {
 }
 
 func processBuffer(ci chunkInfo, f *os.File) bufferState {
-	runs := int(ci.size / BufferSize)
 	leftOverBytes := int(ci.size % BufferSize)
-	var buffers int
+
+	runs := int(ci.size / BufferSize)
 	if leftOverBytes > 0 {
-		buffers = runs + 1
-	} else {
-		buffers = runs
+		runs++
 	}
-	bufStates := make(bufferStates, buffers)
+	bufStates := make(bufferStates, runs)
+
 	for index := 0; index < runs; index++ {
-		// make a buffer of size 8192
-		buf := make([]byte, BufferSize)
+		// make a buffer of size 8192 or left over bytes depending
+		bufSize := BufferSize
+		if index == runs-1 && leftOverBytes > 0 {
+			bufSize = leftOverBytes
+		}
+		buf := make([]byte, bufSize)
 		// We get the offset based on the actual offset and bytes read in this
 		// iteration func. TODO: we may have to read from the next byte. Need
 		// to check how offset works
@@ -92,19 +95,6 @@ func processBuffer(ci chunkInfo, f *os.File) bufferState {
 			log.Fatal(err)
 		}
 		bufStates[index] = countBuffer(buf)
-	}
-	// TODO: Fold this into the loop above
-	if leftOverBytes > 0 {
-		buf := make([]byte, leftOverBytes)
-		// We get the offset based on the actual offset and bytes read in this
-		// iteration func. TODO: we may have to read from the next byte. Need
-		// to check how offset works
-		offset := ci.offset + int64(runs*BufferSize)
-		_, err := f.ReadAt(buf, offset)
-		if err != nil {
-			log.Fatal(err)
-		}
-		bufStates[buffers-1] = countBuffer(buf)
 	}
 	finalState := bufStates.reduce(bufferState{})
 	return finalState

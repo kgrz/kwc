@@ -119,7 +119,7 @@ func findOffsets(f *os.File, bufCount int) []chunkInfo {
 	// will still use mutiple CPUs for a file with size 8193 bytes. Ideally,
 	// this threshold value should be obtained by running it on a true
 	// multicore machine on files of different sizes.
-	if fileSize < BufferSize {
+	if fileSize < BufferSize*BufferSize {
 		ci := make([]chunkInfo, 1)
 		ci[0] = chunkInfo{size: fileSize, offset: 0}
 		return ci

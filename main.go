@@ -51,12 +51,10 @@ func main() {
 		wg.Add(cpuCount)
 
 		for i, offset := range offsets {
-			off := offset
-			index := i
-			go func() {
-				bufStates[index] = processBuffer(off, f)
+			go func(idx int, off chunkInfo) {
+				bufStates[idx] = processBuffer(off, f)
 				wg.Done()
-			}()
+			}(i, offset)
 		}
 
 		wg.Wait()

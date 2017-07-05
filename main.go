@@ -45,10 +45,10 @@ func main() {
 
 	cpuCount := runtime.NumCPU()
 	chunks := getChunks(f, cpuCount)
-	updatedChunks := make([]chunk, cpuCount)
+	updatedChunks := make([]chunk, len(chunks))
 
 	fmt.Printf("Using %d cores\n\n", cpuCount)
-	wg.Add(cpuCount)
+	wg.Add(len(chunks))
 
 	for i, c := range chunks {
 		a := c
@@ -58,6 +58,9 @@ func main() {
 	}
 
 	wg.Wait()
+	for _, c := range updatedChunks {
+		fmt.Println(c)
+	}
 	count := reduce(updatedChunks)
 
 	fmt.Println("chars: ", count.charct)
@@ -90,10 +93,6 @@ func processBuffer(c *chunk, f *os.File) chunk {
 		_, err := f.ReadAt(buf, offset)
 		if err != nil {
 			log.Fatal(err)
-		}
-
-		if index == 0 {
-			c.firstChar = buf[0]
 		}
 		countBuffer(c, buf)
 	}
@@ -184,17 +183,16 @@ func countBuffer(c *chunk, buf []byte) {
 	// previous char pointer to true.
 	if isSpace(c.lastChar) {
 		isPrevCharSpace = true
-	} else {
-		isPrevCharSpace = false
 	}
 
-	// if isNewLine(c.firstChar) {
-	// 	bs.lines++
-	// }
-
-	for i := 1; i < bufSize; i++ {
+	for i := 0; i < bufSize; i++ {
 		// For each line, start from the second byte from the slice
 		char := buf[i]
+		// default value of byte is 0
+		if c.firstChar == 0 {
+			c.firstChar = char
+		}
+
 		if isNewLine(char) {
 			c.linect++
 		}

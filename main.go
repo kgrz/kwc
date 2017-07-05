@@ -58,7 +58,10 @@ func main() {
 			}()
 		}
 
-		wg.Wait()
+		go func() {
+			wg.Wait()
+		}()
+
 		finalState = bufStates.reduce(bufferState{})
 	} else {
 		finalState = processBuffer(offsets[0], f, false)

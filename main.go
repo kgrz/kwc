@@ -46,20 +46,39 @@ func main() {
 		var wg sync.WaitGroup
 
 		fmt.Printf("Using %d cores\n\n", cpuCount)
-		newchunks := make([]chunk, cpuCount)
 
-		for i, offset := range chunks {
+		for i := 0; i < len(chunks); i++ {
 			wg.Add(1)
-			go func(idx int, off chunk) {
-				newchunks[idx] = processBuffer(off, f)
+			go func(index int) {
+				chnkptr := &chunks[index]
+				/*
+					Note that above is not the same as:
+
+					chnk := chunks[index]
+					processBuffer(&chnk, f)
+
+					Doing so does update that chunk object that is referenced
+					by the variable chnk, but this won't update the value in
+					the slice. So we'll need extra step of assigning the value
+					back to the slice:
+
+					chnk := chunks[index]
+					processBuffer(&chnk, f)
+					chunks[index] = chnk
+
+					Thanks, Dave Cheney!
+					https://dave.cheney.net/2017/04/29/there-is-no-pass-by-reference-in-go
+				*/
+				processBuffer(chnkptr, f)
 				wg.Done()
-			}(i, offset)
+			}(i)
 		}
 
 		wg.Wait()
-		finalState = reduce(newchunks)
+		finalState = reduce(chunks)
 	} else {
-		finalState = processBuffer(chunks[0], f)
+		processBuffer(&chunks[0], f)
+		finalState = chunks[0]
 	}
 
 	fmt.Println("chars: ", finalState.chars)
@@ -67,11 +86,10 @@ func main() {
 	fmt.Println("lines: ", finalState.lines)
 }
 
-func processBuffer(ci chunk, f *os.File) chunk {
-	var finalState chunk
-	leftOverBytes := int(ci.size % BufferSize)
+func processBuffer(chunck *chunk, f *os.File) {
+	leftOverBytes := int(chunck.size % BufferSize)
 
-	runs := int(ci.size / BufferSize)
+	runs := int(chunck.size / BufferSize)
 	if leftOverBytes > 0 {
 		runs++
 	}
@@ -86,14 +104,36 @@ func processBuffer(ci chunk, f *os.File) chunk {
 		// We get the offset based on the actual offset and bytes read in this
 		// iteration func. TODO: we may have to read from the next byte. Need
 		// to check how offset works
-		offset := ci.offset + int64(index*BufferSize)
-		_, err := f.ReadAt(buf, offset)
-		if err != nil {
+		offset := chunck.offset + int64(index*BufferSize)
+		if _, err := f.ReadAt(buf, offset); err != nil {
 			log.Fatal(err)
 		}
-		countBuffer(buf, &finalState)
+
+		chunck.chars += bufSize
+
+		for _, char := range buf {
+			// relying on the assumption that a nul byte doesn't appear in mainline
+			// operation. The initial value of a byte is 0.
+			if chunck.firstByte == 0 {
+				chunck.firstByte = char
+				chunck.lastByte = char
+			}
+
+			if isNewLine(char) {
+				chunck.lines++
+			}
+
+			// This also handles the case where the previous buffer's last char
+			// was a space, and the first char in the current buffer is also a
+			// space. In that case, since the lastByte and char are the same
+			// values (we set it above), this if condition will be false, and
+			// we won't be incrementing the count of words.
+			if isSpace(char) && !isSpace(chunck.lastByte) {
+				chunck.words++
+			}
+			chunck.lastByte = char
+		}
 	}
-	return finalState
 }
 
 func findOffsets(f *os.File, bufCount int) []chunk {
@@ -159,37 +199,4 @@ func isSpace(char byte) bool {
 
 func isNewLine(char byte) bool {
 	return char == 10
-}
-
-// Implements the main character, word, line counting routines.
-func countBuffer(buf []byte, chnk *chunk) {
-	bufSize := len(buf)
-	chnk.chars += bufSize
-
-	for i := 0; i < bufSize; i++ {
-		// For each line, start from the second byte from the slice
-		char := buf[i]
-		// relying on the assumption that a nul byte doesn't appear in mainline
-		// operation. The initial value of a byte is 0.
-		if chnk.firstByte == 0 {
-			chnk.firstByte = char
-			chnk.lastByte = char
-		}
-
-		if isNewLine(char) {
-			chnk.lines++
-		}
-
-		if isSpace(char) {
-			// This also handles the case where the previous buffer's last char
-			// was a space, and the first char in the current buffer is also a
-			// space. In that case, since the lastByte and char are the same
-			// values (we set it above), this if condition will be false, and
-			// we won't be incrementing the count of words.
-			if !isSpace(chnk.lastByte) {
-				chnk.words++
-			}
-		}
-		chnk.lastByte = char
-	}
 }

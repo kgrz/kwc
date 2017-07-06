@@ -26,8 +26,6 @@ func (ci chunk) String() string {
 
 const BufferSize = 8192
 
-var wg sync.WaitGroup
-
 func main() {
 	if len(os.Args) < 2 {
 		log.Fatal("Wrong number of arguments. Basic usage: go run main.go <filename>")
@@ -43,16 +41,19 @@ func main() {
 	defer f.Close()
 
 	cpuCount := runtime.NumCPU()
-	offsets := findOffsets(f, cpuCount)
+	chunks := findOffsets(f, cpuCount)
 	var finalState chunk
 
-	// Fast loop if there is only one offset. This will be the case when the file size is smaller than BufferSize. Check findOffsets for more details
-	if len(offsets) > 1 {
+	// Fast loop if there is only one offset. This will be the case when the
+	// file size is smaller than BufferSize. Check findOffsets for more details
+	if len(chunks) > 1 {
+		var wg sync.WaitGroup
+
 		fmt.Printf("Using %d cores\n\n", cpuCount)
 		chunks := make([]chunk, cpuCount)
-		wg.Add(cpuCount)
 
-		for i, offset := range offsets {
+		for i, offset := range chunks {
+			wg.Add(1)
 			go func(idx int, off chunk) {
 				chunks[idx] = processBuffer(off, f)
 				wg.Done()
@@ -62,7 +63,7 @@ func main() {
 		wg.Wait()
 		finalState = reduce(chunks)
 	} else {
-		finalState = processBuffer(offsets[0], f)
+		finalState = processBuffer(chunks[0], f)
 	}
 
 	fmt.Println("chars: ", finalState.chars)
@@ -186,8 +187,6 @@ func countBuffer(buf []byte) chunk {
 	// previous char pointer to true.
 	if isSpace(bs.firstByte) {
 		isPrevCharSpace = true
-	} else {
-		isPrevCharSpace = false
 	}
 
 	if isNewLine(bs.firstByte) {

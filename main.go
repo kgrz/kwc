@@ -20,10 +20,6 @@ type chunk struct {
 	firstByte, lastByte byte
 }
 
-func (ci chunk) String() string {
-	return fmt.Sprintf("offset: %d, size: %d", ci.offset, ci.size)
-}
-
 const BufferSize = 8192
 
 func main() {
@@ -50,18 +46,18 @@ func main() {
 		var wg sync.WaitGroup
 
 		fmt.Printf("Using %d cores\n\n", cpuCount)
-		chunks := make([]chunk, cpuCount)
+		newchunks := make([]chunk, cpuCount)
 
 		for i, offset := range chunks {
 			wg.Add(1)
 			go func(idx int, off chunk) {
-				chunks[idx] = processBuffer(off, f)
+				newchunks[idx] = processBuffer(off, f)
 				wg.Done()
 			}(i, offset)
 		}
 
 		wg.Wait()
-		finalState = reduce(chunks)
+		finalState = reduce(newchunks)
 	} else {
 		finalState = processBuffer(chunks[0], f)
 	}
@@ -72,13 +68,13 @@ func main() {
 }
 
 func processBuffer(ci chunk, f *os.File) chunk {
+	var finalState chunk
 	leftOverBytes := int(ci.size % BufferSize)
 
 	runs := int(ci.size / BufferSize)
 	if leftOverBytes > 0 {
 		runs++
 	}
-	chunks := make([]chunk, runs)
 
 	for index := 0; index < runs; index++ {
 		// make a buffer of size 8192 or left over bytes depending
@@ -95,9 +91,8 @@ func processBuffer(ci chunk, f *os.File) chunk {
 		if err != nil {
 			log.Fatal(err)
 		}
-		chunks[index] = countBuffer(buf)
+		countBuffer(buf, &finalState)
 	}
-	finalState := reduce(chunks)
 	return finalState
 }
 
@@ -110,7 +105,7 @@ func findOffsets(f *os.File, bufCount int) []chunk {
 	// will still use mutiple CPUs for a file with size 8193 bytes. Ideally,
 	// this threshold value should be obtained by running it on a true
 	// multicore machine on files of different sizes.
-	if fileSize < BufferSize*BufferSize {
+	if fileSize < BufferSize*BufferSize*10 {
 		ci := make([]chunk, 1)
 		ci[0] = chunk{size: fileSize}
 		return ci
@@ -140,13 +135,6 @@ func reduce(chunks []chunk) chunk {
 	for i := 1; i < chunksCount; i++ {
 		currentChunk := chunks[i]
 
-		// special treatment for words because we need to check with previous
-		// state if past buffer cut off some word partially. If the last char
-		// in previous buffer and the first char in current buffer are not
-		// spaces, we have counted two words, so reduce it by one
-		if !isSpace(finalChunk.lastByte) && !isSpace(currentChunk.firstByte) {
-			finalChunk.words--
-		}
 		finalChunk.chars += currentChunk.chars
 		finalChunk.lines += currentChunk.lines
 		finalChunk.words += currentChunk.words
@@ -174,46 +162,34 @@ func isNewLine(char byte) bool {
 }
 
 // Implements the main character, word, line counting routines.
-func countBuffer(buf []byte) chunk {
-	var bs chunk
+func countBuffer(buf []byte, chnk *chunk) {
 	bufSize := len(buf)
-	bs.chars += bufSize
-	bs.lastByte = buf[bufSize-1]
-	bs.firstByte = buf[0]
+	chnk.chars += bufSize
 
-	var isPrevCharSpace bool
-
-	// Special case for the first character. If it's a space, then set the
-	// previous char pointer to true.
-	if isSpace(bs.firstByte) {
-		isPrevCharSpace = true
-	}
-
-	if isNewLine(bs.firstByte) {
-		bs.lines++
-	}
-
-	for i := 1; i < bufSize; i++ {
+	for i := 0; i < bufSize; i++ {
 		// For each line, start from the second byte from the slice
 		char := buf[i]
+		// relying on the assumption that a nul byte doesn't appear in mainline
+		// operation. The initial value of a byte is 0.
+		if chnk.firstByte == 0 {
+			chnk.firstByte = char
+			chnk.lastByte = char
+		}
+
 		if isNewLine(char) {
-			bs.lines++
+			chnk.lines++
 		}
+
 		if isSpace(char) {
-			if !isPrevCharSpace {
-				bs.words++
+			// This also handles the case where the previous buffer's last char
+			// was a space, and the first char in the current buffer is also a
+			// space. In that case, since the lastByte and char are the same
+			// values (we set it above), this if condition will be false, and
+			// we won't be incrementing the count of words.
+			if !isSpace(chnk.lastByte) {
+				chnk.words++
 			}
-			isPrevCharSpace = true
-		} else {
-			isPrevCharSpace = false
 		}
+		chnk.lastByte = char
 	}
-
-	// If the previous character (last of the buffer) is not a space, increment
-	// the word count
-	if !isPrevCharSpace {
-		bs.words++
-	}
-
-	return bs
 }

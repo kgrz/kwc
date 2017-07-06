@@ -14,11 +14,13 @@ func handle(err error) {
 	}
 }
 
-type chunkInfo struct {
-	offset, size int64
+type chunk struct {
+	offset, size        int64
+	words, chars, lines int
+	firstByte, lastByte byte
 }
 
-func (ci chunkInfo) String() string {
+func (ci chunk) String() string {
 	return fmt.Sprintf("offset: %d, size: %d", ci.offset, ci.size)
 }
 
@@ -42,23 +44,23 @@ func main() {
 
 	cpuCount := runtime.NumCPU()
 	offsets := findOffsets(f, cpuCount)
-	var finalState bufferState
+	var finalState chunk
 
 	// Fast loop if there is only one offset. This will be the case when the file size is smaller than BufferSize. Check findOffsets for more details
 	if len(offsets) > 1 {
 		fmt.Printf("Using %d cores\n\n", cpuCount)
-		bufStates := make(bufferStates, cpuCount)
+		chunks := make([]chunk, cpuCount)
 		wg.Add(cpuCount)
 
 		for i, offset := range offsets {
-			go func(idx int, off chunkInfo) {
-				bufStates[idx] = processBuffer(off, f)
+			go func(idx int, off chunk) {
+				chunks[idx] = processBuffer(off, f)
 				wg.Done()
 			}(i, offset)
 		}
 
 		wg.Wait()
-		finalState = bufStates.reduce(bufferState{})
+		finalState = reduce(chunks)
 	} else {
 		finalState = processBuffer(offsets[0], f)
 	}
@@ -68,14 +70,14 @@ func main() {
 	fmt.Println("lines: ", finalState.lines)
 }
 
-func processBuffer(ci chunkInfo, f *os.File) bufferState {
+func processBuffer(ci chunk, f *os.File) chunk {
 	leftOverBytes := int(ci.size % BufferSize)
 
 	runs := int(ci.size / BufferSize)
 	if leftOverBytes > 0 {
 		runs++
 	}
-	bufStates := make(bufferStates, runs)
+	chunks := make([]chunk, runs)
 
 	for index := 0; index < runs; index++ {
 		// make a buffer of size 8192 or left over bytes depending
@@ -92,13 +94,13 @@ func processBuffer(ci chunkInfo, f *os.File) bufferState {
 		if err != nil {
 			log.Fatal(err)
 		}
-		bufStates[index] = countBuffer(buf)
+		chunks[index] = countBuffer(buf)
 	}
-	finalState := bufStates.reduce(bufferState{})
+	finalState := reduce(chunks)
 	return finalState
 }
 
-func findOffsets(f *os.File, bufCount int) []chunkInfo {
+func findOffsets(f *os.File, bufCount int) []chunk {
 	fileinfo, err := f.Stat()
 	handle(err)
 	fileSize := fileinfo.Size()
@@ -108,12 +110,12 @@ func findOffsets(f *os.File, bufCount int) []chunkInfo {
 	// this threshold value should be obtained by running it on a true
 	// multicore machine on files of different sizes.
 	if fileSize < BufferSize*BufferSize {
-		ci := make([]chunkInfo, 1)
-		ci[0] = chunkInfo{size: fileSize, offset: 0}
+		ci := make([]chunk, 1)
+		ci[0] = chunk{size: fileSize}
 		return ci
 	}
 
-	ci := make([]chunkInfo, bufCount)
+	ci := make([]chunk, bufCount)
 
 	size := fileSize / int64(bufCount)
 	remainder := fileSize % int64(bufCount)
@@ -123,51 +125,34 @@ func findOffsets(f *os.File, bufCount int) []chunkInfo {
 		if i == bufCount-1 {
 			size = size + remainder
 		}
-		ci[i] = chunkInfo{size: size, offset: offset}
+		ci[i] = chunk{size: size, offset: offset}
 		offset += size
 	}
 
 	return ci
 }
 
-type bufferState struct {
-	words, lines, chars int
-	firstChar, lastChar byte
-}
+func reduce(chunks []chunk) chunk {
+	finalChunk := chunks[0]
+	chunksCount := len(chunks)
 
-type bufferStates []bufferState
+	for i := 1; i < chunksCount; i++ {
+		currentChunk := chunks[i]
 
-func (bxs bufferStates) reduce(initialState bufferState) bufferState {
-	var previousState bufferState
-	finalState := initialState
-	bxsCount := len(bxs)
-
-	for i, bufState := range bxs {
-		if i == 0 {
-			previousState = initialState
-			finalState.firstChar = bufState.firstChar
-		} else {
-			previousState = bxs[i-1]
-			// special treatment for words because we need to check with previous
-			// state if past buffer cut off some word partially. If the last char
-			// in previous buffer and the first char in current buffer are not
-			// spaces, we have counted two words, so reduce it by one
-			if !isSpace(previousState.lastChar) && !isSpace(bufState.firstChar) {
-				finalState.words--
-			}
+		// special treatment for words because we need to check with previous
+		// state if past buffer cut off some word partially. If the last char
+		// in previous buffer and the first char in current buffer are not
+		// spaces, we have counted two words, so reduce it by one
+		if !isSpace(finalChunk.lastByte) && !isSpace(currentChunk.firstByte) {
+			finalChunk.words--
 		}
-
-		if i == bxsCount-1 {
-			finalState.lastChar = bufState.lastChar
-		}
-
-		finalState.chars += bufState.chars
-		finalState.lines += bufState.lines
-		finalState.words += bufState.words
-
+		finalChunk.chars += currentChunk.chars
+		finalChunk.lines += currentChunk.lines
+		finalChunk.words += currentChunk.words
+		finalChunk.lastByte = currentChunk.lastByte
 	}
 
-	return finalState
+	return finalChunk
 }
 
 func isSpace(char byte) bool {
@@ -188,24 +173,24 @@ func isNewLine(char byte) bool {
 }
 
 // Implements the main character, word, line counting routines.
-func countBuffer(buf []byte) bufferState {
-	var bs bufferState
+func countBuffer(buf []byte) chunk {
+	var bs chunk
 	bufSize := len(buf)
 	bs.chars += bufSize
-	bs.lastChar = buf[bufSize-1]
-	bs.firstChar = buf[0]
+	bs.lastByte = buf[bufSize-1]
+	bs.firstByte = buf[0]
 
 	var isPrevCharSpace bool
 
 	// Special case for the first character. If it's a space, then set the
 	// previous char pointer to true.
-	if isSpace(bs.firstChar) {
+	if isSpace(bs.firstByte) {
 		isPrevCharSpace = true
 	} else {
 		isPrevCharSpace = false
 	}
 
-	if isNewLine(bs.firstChar) {
+	if isNewLine(bs.firstByte) {
 		bs.lines++
 	}
 

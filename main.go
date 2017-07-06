@@ -20,6 +20,19 @@ type chunk struct {
 	firstByte, lastByte byte
 }
 
+func (c *chunk) String() string {
+	return fmt.Sprintf(
+		"offset: %d\nsize: %d\nwords: %d\nchars: %d\nlines: %d\nfirstByte: %d\nlastChar: %d\n",
+		c.offset,
+		c.size,
+		c.words,
+		c.chars,
+		c.lines,
+		c.firstByte,
+		c.lastByte,
+	)
+}
+
 const BufferSize = 8192
 
 func main() {
@@ -78,7 +91,7 @@ func main() {
 		finalState = reduce(chunks)
 	} else {
 		processBuffer(&chunks[0], f)
-		finalState = chunks[0]
+		finalState = reduce(chunks)
 	}
 
 	fmt.Println("chars: ", finalState.chars)
@@ -111,14 +124,14 @@ func processBuffer(chunck *chunk, f *os.File) {
 
 		chunck.chars += bufSize
 
-		for _, char := range buf {
-			// relying on the assumption that a nul byte doesn't appear in mainline
-			// operation. The initial value of a byte is 0.
-			if chunck.firstByte == 0 {
-				chunck.firstByte = char
-				chunck.lastByte = char
-			}
+		// setting up initial state for the first run of this chunk
+		if index == 0 {
+			firstByte := buf[0]
+			chunck.firstByte = firstByte
+			chunck.lastByte = firstByte
+		}
 
+		for _, char := range buf {
 			if isNewLine(char) {
 				chunck.lines++
 			}
@@ -179,6 +192,13 @@ func reduce(chunks []chunk) chunk {
 		finalChunk.lines += currentChunk.lines
 		finalChunk.words += currentChunk.words
 		finalChunk.lastByte = currentChunk.lastByte
+	}
+
+	// special handling for the last byte of the entire file. Increment word
+	// count if last byte is not a space because that's the end of the line
+	// (eof), but we don't actually get to read it.
+	if lastChunk := chunks[chunksCount-1]; !isSpace(lastChunk.lastByte) {
+		finalChunk.words++
 	}
 
 	return finalChunk

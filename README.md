@@ -17,6 +17,13 @@ __Mostly works on *nix machines__
 
 Some problems:
 --------------
+This is not really a problem, but a feature™: This won't yet work with streams
+(like `stdin`, `stdout` for instance). Native `wc` does a lot of things, and one
+of the most important features is the ability to work with input streams. And making
+that feature work with multi-core or multi-process ability isn't all that useful (because
+a stream generally is linear). This program doesn't work yet with a stream. Will be added
+later.
+
 
 1. I'm finding it non straight forward to do UTF-8 aware reading because
    if a chunk cuts an particular multi-byte character in the middle,
@@ -31,9 +38,6 @@ It's fast™
 
 <img src='https://user-images.githubusercontent.com/400299/27813278-6f917238-6092-11e7-9472-ac9125fa3ba8.gif' title='benchmarking wc vs this program'/>
 
-Bonus bug! Current implementation has a race condition (not a threading
-problem, but probably has to do with accessing the same slice in and out
-of go routines).
 
 Learnings:
 ---------

@@ -33,7 +33,11 @@ func (c *chunk) String() string {
 	)
 }
 
-const BufferSize = 8192
+// Trying to align the byte count that's used to read the data
+// to match the page cache of linux machines (4KB that I read from an article.
+// Not sure if it's wrong, or optimal. I've seen at least 2 second decrease in
+// net time after this change, so I'm keeping it.
+const BufferSize = 4000 * 4000
 
 func main() {
 	if len(os.Args) < 2 {
@@ -158,7 +162,7 @@ func findOffsets(f *os.File, bufCount int) []chunk {
 	// will still use mutiple CPUs for a file with size 8193 bytes. Ideally,
 	// this threshold value should be obtained by running it on a true
 	// multicore machine on files of different sizes.
-	if fileSize < BufferSize*BufferSize*10 {
+	if fileSize < BufferSize {
 		ci := make([]chunk, 1)
 		ci[0] = chunk{size: fileSize}
 		return ci

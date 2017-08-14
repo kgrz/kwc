@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"os"
@@ -41,7 +42,12 @@ const BufferSize = 4000 * 4000
 
 func main() {
 	if len(os.Args) < 2 {
-		log.Fatal("Wrong number of arguments. Basic usage: go run main.go <filename>")
+		stdin := bufio.NewScanner(os.Stdin)
+		chunck := process1(stdin)
+		fmt.Println("chars: ", chunck.chars)
+		fmt.Println("words: ", chunck.words)
+		fmt.Println("lines: ", chunck.lines)
+		os.Exit(0)
 	}
 
 	if len(os.Args) > 2 {
@@ -93,16 +99,45 @@ func main() {
 
 		wg.Wait()
 		finalState = reduce(chunks)
+		fmt.Println("chars: ", finalState.chars)
+		fmt.Println("words: ", finalState.words)
+		fmt.Println("lines: ", finalState.lines)
 	} else {
-		processBuffer(&chunks[0], f)
-		finalState = reduce(chunks)
+		chunck := process1(bufio.NewScanner(f))
+		fmt.Println("chars: ", chunck.chars)
+		fmt.Println("words: ", chunck.words)
+		fmt.Println("lines: ", chunck.lines)
 	}
 
-	fmt.Println("chars: ", finalState.chars)
-	fmt.Println("words: ", finalState.words)
-	fmt.Println("lines: ", finalState.lines)
 }
 
+// function for straightline reading. This is intended to work with
+// streams.
+func process1(s *bufio.Scanner) chunk {
+	var chunck chunk
+	s.Split(bufio.ScanBytes)
+
+	for s.Scan() {
+		bytes := s.Bytes()
+		chunck.chars += len(bytes)
+
+		for _, char := range bytes {
+			if isNewLine(char) {
+				chunck.lines++
+			}
+
+			if isSpace(char) && (chunck.lastByte > 0 && !isSpace(chunck.lastByte)) {
+				chunck.words++
+			}
+
+			chunck.lastByte = char
+		}
+	}
+
+	return chunck
+}
+
+// function for buffered, chunked reading
 func processBuffer(chunck *chunk, f *os.File) {
 	leftOverBytes := int(chunck.size % BufferSize)
 

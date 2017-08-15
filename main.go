@@ -15,13 +15,14 @@ func handle(err error) {
 	}
 }
 
-type chunk struct {
+// This holds the state of one chunk of the file
+type Chunk struct {
 	offset, size        int64
 	words, chars, lines int
 	firstByte, lastByte byte
 }
 
-func (c chunk) String() string {
+func (c Chunk) String() string {
 	return fmt.Sprintf(
 		"chars: %d\nwords: %d\nlines: %d\n",
 		c.chars,
@@ -68,18 +69,14 @@ func main() {
 			stream = bufio.NewScanner(f)
 		}
 
-		chunck := process1(stream)
-		fmt.Println(chunck)
+		fmt.Println(process1(stream))
 		os.Exit(0)
 	}
 
 	if len(os.Args) > 2 {
-		fmt.Printf("Warning: Multile files are not supported yet. Using the first one.\n\n")
-		os.Exit(1)
+		log.Fatal("Error: Multile files are not supported yet.")
 	}
 
-	// FIXME: Are we reading this twice? Because we open the file to check the
-	// file size
 	f, err := os.Open(os.Args[1])
 	handle(err)
 	defer f.Close()
@@ -122,35 +119,35 @@ func main() {
 
 // function for straightline reading. This is intended to work with
 // streams.
-func process1(s *bufio.Scanner) chunk {
-	var chunck chunk
+func process1(s *bufio.Scanner) Chunk {
+	var chunk Chunk
 	s.Split(bufio.ScanBytes)
 
 	for s.Scan() {
 		bytes := s.Bytes()
-		chunck.chars += len(bytes)
+		chunk.chars += len(bytes)
 
 		for _, char := range bytes {
 			if isNewLine(char) {
-				chunck.lines++
+				chunk.lines++
 			}
 
-			if isSpace(char) && (chunck.lastByte > 0 && !isSpace(chunck.lastByte)) {
-				chunck.words++
+			if isSpace(char) && (chunk.lastByte > 0 && !isSpace(chunk.lastByte)) {
+				chunk.words++
 			}
 
-			chunck.lastByte = char
+			chunk.lastByte = char
 		}
 	}
 
-	return chunck
+	return chunk
 }
 
 // function for buffered, chunked reading
-func processBuffer(chunck *chunk, f *os.File) {
-	leftOverBytes := int(chunck.size % BufferSize)
+func processBuffer(chunk *Chunk, f *os.File) {
+	leftOverBytes := int(chunk.size % BufferSize)
 
-	runs := int(chunck.size / BufferSize)
+	runs := int(chunk.size / BufferSize)
 	if leftOverBytes > 0 {
 		runs++
 	}
@@ -163,25 +160,24 @@ func processBuffer(chunck *chunk, f *os.File) {
 		}
 		buf := make([]byte, bufSize)
 		// We get the offset based on the actual offset and bytes read in this
-		// iteration func. TODO: we may have to read from the next byte. Need
-		// to check how offset works
-		offset := chunck.offset + int64(index*BufferSize)
+		// iteration func.
+		offset := chunk.offset + int64(index*BufferSize)
 		if _, err := f.ReadAt(buf, offset); err != nil {
 			log.Fatal(err)
 		}
 
-		chunck.chars += bufSize
+		chunk.chars += bufSize
 
 		// setting up initial state for the first run of this chunk
 		if index == 0 {
 			firstByte := buf[0]
-			chunck.firstByte = firstByte
-			chunck.lastByte = firstByte
+			chunk.firstByte = firstByte
+			chunk.lastByte = firstByte
 		}
 
 		for _, char := range buf {
 			if isNewLine(char) {
-				chunck.lines++
+				chunk.lines++
 			}
 
 			// This also handles the case where the previous buffer's last char
@@ -189,21 +185,21 @@ func processBuffer(chunck *chunk, f *os.File) {
 			// space. In that case, since the lastByte and char are the same
 			// values (we set it above), this if condition will be false, and
 			// we won't be incrementing the count of words.
-			if isSpace(char) && !isSpace(chunck.lastByte) {
-				chunck.words++
+			if isSpace(char) && !isSpace(chunk.lastByte) {
+				chunk.words++
 			}
-			chunck.lastByte = char
+			chunk.lastByte = char
 		}
 	}
 }
 
-func findOffsets(f *os.File) []chunk {
+func findOffsets(f *os.File) []Chunk {
 	fileinfo, err := f.Stat()
 	handle(err)
 	fileSize := fileinfo.Size()
 	cpus := runtime.NumCPU()
 
-	ci := make([]chunk, cpus)
+	ci := make([]Chunk, cpus)
 
 	size := fileSize / int64(cpus)
 	remainder := fileSize % int64(cpus)
@@ -213,7 +209,7 @@ func findOffsets(f *os.File) []chunk {
 		if i == cpus-1 {
 			size = size + remainder
 		}
-		ci[i] = chunk{size: size, offset: offset}
+		ci[i] = Chunk{size: size, offset: offset}
 		offset += size
 	}
 
@@ -222,12 +218,12 @@ func findOffsets(f *os.File) []chunk {
 	return ci
 }
 
-func reduce(chunks []chunk) chunk {
-	finalChunk := chunks[0]
-	chunksCount := len(chunks)
+func reduce(chunk []Chunk) Chunk {
+	finalChunk := chunk[0]
+	chunksCount := len(chunk)
 
 	for i := 1; i < chunksCount; i++ {
-		currentChunk := chunks[i]
+		currentChunk := chunk[i]
 
 		finalChunk.chars += currentChunk.chars
 		finalChunk.lines += currentChunk.lines
@@ -238,7 +234,7 @@ func reduce(chunks []chunk) chunk {
 	// special handling for the last byte of the entire file. Increment word
 	// count if last byte is not a space because that's the end of the line
 	// (eof), but we don't actually get to read it.
-	if lastChunk := chunks[chunksCount-1]; !isSpace(lastChunk.lastByte) {
+	if lastChunk := chunk[chunksCount-1]; !isSpace(lastChunk.lastByte) {
 		finalChunk.words++
 	}
 

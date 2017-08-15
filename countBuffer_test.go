@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"bufio"
+	"strings"
+	"testing"
+)
 
 type fixtures struct {
 	input string
@@ -40,7 +44,7 @@ var tests = []fixtures{
 
 func TestCount(t *testing.T) {
 	for i, fixture := range tests {
-		count := countBuffer([]byte(fixture.input))
+		count := process1(bufio.NewScanner(strings.NewReader(fixture.input)))
 
 		if count.words != fixture.words {
 			t.Error(

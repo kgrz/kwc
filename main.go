@@ -81,7 +81,7 @@ func main() {
 	handle(err)
 	defer f.Close()
 
-	chunks := findOffsets(f)
+	chunks := fileOffsets(f)
 
 	var wg sync.WaitGroup
 
@@ -193,24 +193,28 @@ func processBuffer(chunk *Chunk, f *os.File) {
 	}
 }
 
-func findOffsets(f *os.File) []Chunk {
+func fileOffsets(f *os.File) []Chunk {
 	fileinfo, err := f.Stat()
 	handle(err)
 	fileSize := fileinfo.Size()
+	return offsets(fileSize)
+}
+
+func offsets(size int64) []Chunk {
 	cpus := runtime.NumCPU()
 
 	ci := make([]Chunk, cpus)
 
-	size := fileSize / int64(cpus)
-	remainder := fileSize % int64(cpus)
+	chunkSize := size / int64(cpus)
+	remainder := size % int64(cpus)
 	var offset int64
 
 	for i := 0; i < cpus; i++ {
 		if i == cpus-1 {
-			size = size + remainder
+			chunkSize = chunkSize + remainder
 		}
-		ci[i] = Chunk{size: size, offset: offset}
-		offset += size
+		ci[i] = Chunk{size: chunkSize, offset: offset}
+		offset += chunkSize
 	}
 
 	fmt.Printf("Using %d cores\n\n", cpus)

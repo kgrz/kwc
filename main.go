@@ -7,6 +7,8 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"runtime/pprof"
+	"text/tabwriter"
 )
 
 func handle(err error) {
@@ -33,6 +35,19 @@ func (c Chunk) String() string {
 const BufferSize = 4000 * 4000
 
 func main() {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
+	defer w.Flush()
+
+	cpuFile, err := os.Create("cpu.prof")
+	handle(err)
+	defer cpuFile.Close()
+	defer pprof.StopCPUProfile()
+
+	if err := pprof.StartCPUProfile(cpuFile); err != nil {
+		fmt.Println("could not start CPU profile: ", err)
+		os.Exit(1)
+	}
+
 	if len(os.Args) < 2 {
 		// Assume input to be stdin
 		stream := bufio.NewScanner(os.Stdin)
@@ -47,11 +62,11 @@ func main() {
 
 		for i, filename := range filenames {
 			counts[i] = countFile(filename)
-			fmt.Printf("%s\t%s\n", counts[i], filename)
+			fmt.Fprintln(w, fmt.Sprintf("%s\t%s", counts[i], filename))
 		}
 
 		if len(filenames) > 1 {
-			fmt.Printf("%s\ttotal\n", reduce(counts))
+			fmt.Fprintln(w, fmt.Sprintf("%s\ttotal", reduce(counts)))
 		}
 	}
 }

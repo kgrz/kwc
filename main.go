@@ -38,50 +38,33 @@ func (c Chunk) String() string {
 const BufferSize = 4000 * 4000
 
 func main() {
-	useSingleChunk := false
-
 	if len(os.Args) < 2 {
-		useSingleChunk = true
-	}
-
-	if len(os.Args) == 2 {
-		filename := os.Args[1]
-		fileinfo, err := os.Stat(filename)
-		handle(err)
-		fileSize := fileinfo.Size()
-		// If the file size is smaller than the buffer size, just create one chunk.
-		// This avoids useless synchronisation cost. Even this is not optimal. This
-		// will still use mutiple CPUs for a file with size 8193 bytes. Ideally,
-		// this threshold value should be obtained by running it on a true
-		// multicore machine on files of different sizes.
-		if fileSize < BufferSize {
-			useSingleChunk = true
-		}
-	}
-
-	if useSingleChunk {
+		// Assume input to be stdin
 		stream := bufio.NewScanner(os.Stdin)
-
-		if len(os.Args) == 2 {
-			f, err := os.Open(os.Args[1])
-			handle(err)
-			defer f.Close()
-			stream = bufio.NewScanner(f)
+		fmt.Println(processStream(stream))
+	} else {
+		// If the argument list is more than 1, assume that all the arguments
+		// are file names. Verify if they are actually files, and run the
+		// counting routine on each of the items
+		filenames := os.Args[1:]
+		validateFiles(filenames)
+		for _, filename := range filenames {
+			count := countFile(filename)
+			fmt.Println(count)
 		}
-
-		fmt.Println(process1(stream))
-		os.Exit(0)
 	}
+}
 
-	if len(os.Args) > 2 {
-		log.Fatal("Error: Multile files are not supported yet.")
-	}
-
-	f, err := os.Open(os.Args[1])
+func countFile(filename string) Chunk {
+	f, err := os.Open(filename)
 	handle(err)
 	defer f.Close()
-
 	chunks := fileOffsets(f)
+
+	if len(chunks) == 1 {
+		stream := bufio.NewScanner(f)
+		return processStream(stream)
+	}
 
 	var wg sync.WaitGroup
 
@@ -114,12 +97,12 @@ func main() {
 
 	wg.Wait()
 	finalState := reduce(chunks)
-	fmt.Println(finalState)
+	return finalState
 }
 
 // function for straightline reading. This is intended to work with
 // streams.
-func process1(s *bufio.Scanner) Chunk {
+func processStream(s *bufio.Scanner) Chunk {
 	var chunk Chunk
 	s.Split(bufio.ScanBytes)
 
@@ -197,12 +180,27 @@ func fileOffsets(f *os.File) []Chunk {
 	fileinfo, err := f.Stat()
 	handle(err)
 	fileSize := fileinfo.Size()
+
+	// If the file size is smaller than the buffer size, just create one chunk.
+	// This avoids useless synchronisation cost. Even this is not optimal. This
+	// will still use mutiple CPUs for a file with size 8193 bytes. Ideally,
+	// this threshold value should be obtained by running it on a true
+	// multicore machine on files of different sizes.
+	if fileSize < BufferSize {
+		return offset(fileSize)
+	}
+
 	return offsets(fileSize)
+}
+
+func offset(size int64) []Chunk {
+	ci := make([]Chunk, 1)
+	ci[0] = Chunk{size: size}
+	return ci
 }
 
 func offsets(size int64) []Chunk {
 	cpus := runtime.NumCPU()
-
 	ci := make([]Chunk, cpus)
 
 	chunkSize := size / int64(cpus)
@@ -260,4 +258,14 @@ func isSpace(char byte) bool {
 
 func isNewLine(char byte) bool {
 	return char == 10
+}
+
+func validateFiles(filelist []string) {
+	for _, file := range filelist {
+		if _, err := os.Stat(file); os.IsNotExist(err) {
+			fmt.Printf("File does not exist: %s\n", file)
+			fmt.Println("Aborting")
+			os.Exit(1)
+		}
+	}	
 }

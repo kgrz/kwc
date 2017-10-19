@@ -23,12 +23,7 @@ type Chunk struct {
 }
 
 func (c Chunk) String() string {
-	return fmt.Sprintf(
-		"chars: %d\nwords: %d\nlines: %d\n",
-		c.chars,
-		c.words,
-		c.lines,
-	)
+	return fmt.Sprintf("\t%d\t%d\t%d\t", c.lines, c.words, c.chars)
 }
 
 // Trying to align the byte count that's used to read the data
@@ -48,9 +43,15 @@ func main() {
 		// counting routine on each of the items
 		filenames := os.Args[1:]
 		validateFiles(filenames)
-		for _, filename := range filenames {
-			count := countFile(filename)
-			fmt.Println(count)
+		counts := make([]Chunk, len(filenames))
+
+		for i, filename := range filenames {
+			counts[i] = countFile(filename)
+			fmt.Printf("%s\t%s\n", counts[i], filename)
+		}
+
+		if len(filenames) > 1 {
+			fmt.Printf("%s\ttotal\n", reduce(counts))
 		}
 	}
 }

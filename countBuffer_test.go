@@ -44,7 +44,7 @@ var tests = []fixtures{
 
 func TestCount(t *testing.T) {
 	for i, fixture := range tests {
-		count := process1(bufio.NewScanner(strings.NewReader(fixture.input)))
+		count := processStream(bufio.NewScanner(strings.NewReader(fixture.input)))
 
 		if count.words != fixture.words {
 			t.Error(

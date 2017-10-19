@@ -78,6 +78,9 @@ func countFile(filename string) Chunk {
 	chunks := fileOffsets(f)
 
 	if len(chunks) == 1 {
+		// Not too comfortable doing this, may be just use the pointer to the
+		// first chunk, and use processBuffer. It's slightly faster than the
+		// Scan() flow.
 		stream := bufio.NewScanner(f)
 		return processStream(stream)
 	}

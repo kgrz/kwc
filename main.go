@@ -189,22 +189,16 @@ func processBuffer(chunk *Chunk, f *os.File) {
 		runs++
 	}
 
-	for index := 0; index < runs; index++ {
-		// make a buffer of size 8192 or left over bytes depending
-		bufSize := BufferSize
-		if index == runs-1 && leftOverBytes > 0 {
-			bufSize = leftOverBytes
-		}
-		buf := make([]byte, bufSize)
-		// We get the offset based on the actual offset and bytes read in this
-		// iteration func.
-		offset := chunk.offset + int64(index*BufferSize)
-		if _, err := f.ReadAt(buf, offset); err != nil {
-			log.Fatal(err)
-		}
+	// make a buffer of size 8192 or left over bytes depending
+	bufSize := BufferSize
+	buf := make([]byte, bufSize)
 
-		if *countChars {
-			chunk.chars += bufSize
+	for index := 0; index < runs; index++ {
+		if index == runs-1 && leftOverBytes > 0 {
+			// if it's the last run, resize the buffer to be just the amount of
+			// left over bytes
+			bufSize = leftOverBytes
+			buf = make([]byte, leftOverBytes)
 		}
 
 		// setting up initial state for the first run of this chunk
@@ -214,19 +208,42 @@ func processBuffer(chunk *Chunk, f *os.File) {
 			chunk.lastByte = firstByte
 		}
 
+		if *countChars {
+			chunk.chars += bufSize
+		}
+
+		// Shortcut to avoid reading the file entirely in case we don't need
+		// the words and lines
+		// TODO: This functions is getting big! May be do something like wc
+		// does where it has a top level switch that covers the smaller cases
+		// like new lines and chars individually
+		if !*multiByte && !*countWords && !*countLines {
+			continue
+		}
+
+		// We get the offset based on the actual offset and bytes read in this
+		// iteration func.
+		offset := chunk.offset + int64(index*BufferSize)
+		if _, err := f.ReadAt(buf, offset); err != nil {
+			log.Fatal(err)
+		}
+
 		for _, char := range buf {
-			if isNewLine(char) && *countLines {
+			if *countLines && isNewLine(char) {
 				chunk.lines++
 			}
 
-			// This also handles the case where the previous buffer's last char
-			// was a space, and the first char in the current buffer is also a
-			// space. In that case, since the lastByte and char are the same
-			// values (we set it above), this if condition will be false, and
-			// we won't be incrementing the count of words.
-			if *countWords && isSpace(char) && !isSpace(chunk.lastByte) {
-				chunk.words++
+			if *countWords {
+				// This also handles the case where the previous buffer's last char
+				// was a space, and the first char in the current buffer is also a
+				// space. In that case, since the lastByte and char are the same
+				// values (we set it above), this if condition will be false, and
+				// we won't be incrementing the count of words.
+				if isSpace(char) && !isSpace(chunk.lastByte) {
+					chunk.words++
+				}
 			}
+
 			chunk.lastByte = char
 		}
 	}

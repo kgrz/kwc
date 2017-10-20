@@ -6,9 +6,11 @@ import (
 	"log"
 	"os"
 	"runtime"
-	"sync"
 	"runtime/pprof"
+	"sync"
 	"text/tabwriter"
+
+	flag "github.com/spf13/pflag"
 )
 
 func handle(err error) {
@@ -34,7 +36,23 @@ func (c Chunk) String() string {
 // net time after this change, so I'm keeping it.
 const BufferSize = 4000 * 4000
 
+var countWords = flag.BoolP("words", "w", false, "Count words, and output only that value")
+var countChars = flag.BoolP("characters", "c", false, "Count chars, and output only that value")
+var countLines = flag.BoolP("lines", "l", false, "Count lines, and output only that value")
+var multiByte = flag.BoolP("multi-byte mode", "m", false, "Multi-byte mode")
+var silent = flag.BoolP("slient mode", "q", false, "Silent mode")
+
 func main() {
+	flag.Parse()
+
+	if !*countWords && !*countChars && !*countLines {
+		*countWords = true
+		*countChars = true
+		*countLines = true
+	}
+
+	fmt.Println(*countWords, *countChars, *countLines)
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
 	defer w.Flush()
 
@@ -48,7 +66,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	if len(os.Args) < 2 {
+	restArgs := flag.Args()
+
+	if len(restArgs) == 0 {
 		// Assume input to be stdin
 		stream := bufio.NewScanner(os.Stdin)
 		fmt.Println(processStream(stream))
@@ -56,7 +76,7 @@ func main() {
 		// If the argument list is more than 1, assume that all the arguments
 		// are file names. Verify if they are actually files, and run the
 		// counting routine on each of the items
-		filenames := os.Args[1:]
+		filenames := restArgs
 		validateFiles(filenames)
 		counts := make([]Chunk, len(filenames))
 
@@ -286,5 +306,5 @@ func validateFiles(filelist []string) {
 			fmt.Println("Aborting")
 			os.Exit(1)
 		}
-	}	
+	}
 }

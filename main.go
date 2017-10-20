@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"log"
 	"os"
@@ -27,7 +28,20 @@ type Chunk struct {
 }
 
 func (c Chunk) String() string {
-	return fmt.Sprintf("\t%d\t%d\t%d\t", c.lines, c.words, c.chars)
+	b := bytes.NewBufferString("")
+	if *countChars {
+		b.WriteString(fmt.Sprintf("%d\t", c.chars))
+	}
+
+	if *countWords {
+		b.WriteString(fmt.Sprintf("%d\t", c.words))
+	}
+
+	if *countLines {
+		b.WriteString(fmt.Sprintf("%d\t", c.lines))
+	}
+
+	return b.String()
 }
 
 // Trying to align the byte count that's used to read the data
@@ -50,8 +64,6 @@ func main() {
 		*countChars = true
 		*countLines = true
 	}
-
-	fmt.Println(*countWords, *countChars, *countLines)
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
 	defer w.Flush()
@@ -147,14 +159,17 @@ func processStream(s *bufio.Scanner) Chunk {
 
 	for s.Scan() {
 		bytes := s.Bytes()
-		chunk.chars += len(bytes)
+
+		if *countChars {
+			chunk.chars += len(bytes)
+		}
 
 		for _, char := range bytes {
-			if isNewLine(char) {
+			if *countLines && isNewLine(char) {
 				chunk.lines++
 			}
 
-			if isSpace(char) && (chunk.lastByte > 0 && !isSpace(chunk.lastByte)) {
+			if *countWords && isSpace(char) && (chunk.lastByte > 0 && !isSpace(chunk.lastByte)) {
 				chunk.words++
 			}
 
@@ -188,7 +203,9 @@ func processBuffer(chunk *Chunk, f *os.File) {
 			log.Fatal(err)
 		}
 
-		chunk.chars += bufSize
+		if *countChars {
+			chunk.chars += bufSize
+		}
 
 		// setting up initial state for the first run of this chunk
 		if index == 0 {
@@ -198,7 +215,7 @@ func processBuffer(chunk *Chunk, f *os.File) {
 		}
 
 		for _, char := range buf {
-			if isNewLine(char) {
+			if isNewLine(char) && *countLines {
 				chunk.lines++
 			}
 
@@ -207,7 +224,7 @@ func processBuffer(chunk *Chunk, f *os.File) {
 			// space. In that case, since the lastByte and char are the same
 			// values (we set it above), this if condition will be false, and
 			// we won't be incrementing the count of words.
-			if isSpace(char) && !isSpace(chunk.lastByte) {
+			if *countWords && isSpace(char) && !isSpace(chunk.lastByte) {
 				chunk.words++
 			}
 			chunk.lastByte = char

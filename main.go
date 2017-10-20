@@ -7,6 +7,8 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"runtime/pprof"
+	"text/tabwriter"
 )
 
 func handle(err error) {
@@ -23,12 +25,7 @@ type Chunk struct {
 }
 
 func (c Chunk) String() string {
-	return fmt.Sprintf(
-		"chars: %d\nwords: %d\nlines: %d\n",
-		c.chars,
-		c.words,
-		c.lines,
-	)
+	return fmt.Sprintf("\t%d\t%d\t%d\t", c.lines, c.words, c.chars)
 }
 
 // Trying to align the byte count that's used to read the data
@@ -38,50 +35,55 @@ func (c Chunk) String() string {
 const BufferSize = 4000 * 4000
 
 func main() {
-	useSingleChunk := false
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
+	defer w.Flush()
+
+	cpuFile, err := os.Create("cpu.prof")
+	handle(err)
+	defer cpuFile.Close()
+	defer pprof.StopCPUProfile()
+
+	if err := pprof.StartCPUProfile(cpuFile); err != nil {
+		fmt.Println("could not start CPU profile: ", err)
+		os.Exit(1)
+	}
 
 	if len(os.Args) < 2 {
-		useSingleChunk = true
-	}
-
-	if len(os.Args) == 2 {
-		filename := os.Args[1]
-		fileinfo, err := os.Stat(filename)
-		handle(err)
-		fileSize := fileinfo.Size()
-		// If the file size is smaller than the buffer size, just create one chunk.
-		// This avoids useless synchronisation cost. Even this is not optimal. This
-		// will still use mutiple CPUs for a file with size 8193 bytes. Ideally,
-		// this threshold value should be obtained by running it on a true
-		// multicore machine on files of different sizes.
-		if fileSize < BufferSize {
-			useSingleChunk = true
-		}
-	}
-
-	if useSingleChunk {
+		// Assume input to be stdin
 		stream := bufio.NewScanner(os.Stdin)
+		fmt.Println(processStream(stream))
+	} else {
+		// If the argument list is more than 1, assume that all the arguments
+		// are file names. Verify if they are actually files, and run the
+		// counting routine on each of the items
+		filenames := os.Args[1:]
+		validateFiles(filenames)
+		counts := make([]Chunk, len(filenames))
 
-		if len(os.Args) == 2 {
-			f, err := os.Open(os.Args[1])
-			handle(err)
-			defer f.Close()
-			stream = bufio.NewScanner(f)
+		for i, filename := range filenames {
+			counts[i] = countFile(filename)
+			fmt.Fprintln(w, fmt.Sprintf("%s\t%s", counts[i], filename))
 		}
 
-		fmt.Println(process1(stream))
-		os.Exit(0)
+		if len(filenames) > 1 {
+			fmt.Fprintln(w, fmt.Sprintf("%s\ttotal", reduce(counts)))
+		}
 	}
+}
 
-	if len(os.Args) > 2 {
-		log.Fatal("Error: Multile files are not supported yet.")
-	}
-
-	f, err := os.Open(os.Args[1])
+func countFile(filename string) Chunk {
+	f, err := os.Open(filename)
 	handle(err)
 	defer f.Close()
+	chunks := fileOffsets(f)
 
-	chunks := findOffsets(f)
+	if len(chunks) == 1 {
+		// Not too comfortable doing this, may be just use the pointer to the
+		// first chunk, and use processBuffer. It's slightly faster than the
+		// Scan() flow.
+		stream := bufio.NewScanner(f)
+		return processStream(stream)
+	}
 
 	var wg sync.WaitGroup
 
@@ -114,12 +116,12 @@ func main() {
 
 	wg.Wait()
 	finalState := reduce(chunks)
-	fmt.Println(finalState)
+	return finalState
 }
 
 // function for straightline reading. This is intended to work with
 // streams.
-func process1(s *bufio.Scanner) Chunk {
+func processStream(s *bufio.Scanner) Chunk {
 	var chunk Chunk
 	s.Split(bufio.ScanBytes)
 
@@ -193,24 +195,43 @@ func processBuffer(chunk *Chunk, f *os.File) {
 	}
 }
 
-func findOffsets(f *os.File) []Chunk {
+func fileOffsets(f *os.File) []Chunk {
 	fileinfo, err := f.Stat()
 	handle(err)
 	fileSize := fileinfo.Size()
-	cpus := runtime.NumCPU()
 
+	// If the file size is smaller than the buffer size, just create one chunk.
+	// This avoids useless synchronisation cost. Even this is not optimal. This
+	// will still use mutiple CPUs for a file with size 8193 bytes. Ideally,
+	// this threshold value should be obtained by running it on a true
+	// multicore machine on files of different sizes.
+	if fileSize < BufferSize {
+		return offset(fileSize)
+	}
+
+	return offsets(fileSize)
+}
+
+func offset(size int64) []Chunk {
+	ci := make([]Chunk, 1)
+	ci[0] = Chunk{size: size}
+	return ci
+}
+
+func offsets(size int64) []Chunk {
+	cpus := runtime.NumCPU()
 	ci := make([]Chunk, cpus)
 
-	size := fileSize / int64(cpus)
-	remainder := fileSize % int64(cpus)
+	chunkSize := size / int64(cpus)
+	remainder := size % int64(cpus)
 	var offset int64
 
 	for i := 0; i < cpus; i++ {
 		if i == cpus-1 {
-			size = size + remainder
+			chunkSize = chunkSize + remainder
 		}
-		ci[i] = Chunk{size: size, offset: offset}
-		offset += size
+		ci[i] = Chunk{size: chunkSize, offset: offset}
+		offset += chunkSize
 	}
 
 	fmt.Printf("Using %d cores\n\n", cpus)
@@ -256,4 +277,14 @@ func isSpace(char byte) bool {
 
 func isNewLine(char byte) bool {
 	return char == 10
+}
+
+func validateFiles(filelist []string) {
+	for _, file := range filelist {
+		if _, err := os.Stat(file); os.IsNotExist(err) {
+			fmt.Printf("File does not exist: %s\n", file)
+			fmt.Println("Aborting")
+			os.Exit(1)
+		}
+	}	
 }

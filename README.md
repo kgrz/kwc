@@ -1,7 +1,6 @@
-wcc
+kwc
 ====
 
-Warning: Code in here is crap, don't read it.
 
 An attempt at file offset-based `wc` implementation that can use
 multiple cores to read the same file. Outline:
@@ -14,16 +13,26 @@ starting from that offset.
 
 __Mostly works on *nix machines__
 
+Warning: Code in here is crap, don't read it.
+
+Installation:
+-------------
+
+I haven't created releases or per-OS packages, so the only way to try
+this out is via `go get`, which means you need to have working Go
+installation.
+
+```
+go get github.com/kgrz/kwc
+```
+
+That _should_ compile and install the binary into your `$GOPATH`. Then run
+the binary as `kwc`. If it's not there, then `cd` into
+`$GOPATH/src/github.com/kgrz/kwc` and run `go install`.
+
 
 Some problems:
 --------------
-This is not really a problem, but a feature™: This won't yet work with streams
-(like `stdin`, `stdout` for instance). Native `wc` does a lot of things, and one
-of the most important features is the ability to work with input streams. And making
-that feature work with multi-core or multi-process ability isn't all that useful (because
-a stream generally is linear). This program doesn't work yet with a stream. Will be added
-later.
-
 
 1. I'm finding it non straight forward to do UTF-8 aware reading because
    if a chunk cuts an particular multi-byte character in the middle,
@@ -33,6 +42,9 @@ later.
 
    Update: I think I have a solution for this! Will implement it soon.
 
+
+What's the advantage?:
+----------------------
 
 It's fast™
 
@@ -60,3 +72,16 @@ Learnings:
     * carriage return (13) \r
     * non breaking space (0xA0)
     * next line character (0x85)
+
+3. Avoiding [`bufio.Scan()`](https://golang.org/pkg/bufio/#Scanner.Scan)
+   is maybe something you'd want to consider if you're looking for
+   speed. The `Scan()` function does a lot of things extra like basic
+   consistent error handling, and it's very useful if you want to store
+   the scanned bytes into lines/words for every iteration. We don't need
+   to do that when just counting the characters or words, so we avoid
+   using it. Perf impact is considerable.
+
+
+   To do a basic test of this hypothesis, try running the program on a
+   `cat`-ed output which uses the scanner codepath and compare it with
+   `wc`.

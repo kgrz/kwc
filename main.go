@@ -7,7 +7,7 @@ import (
 	"log"
 	"os"
 	"runtime"
-	"runtime/pprof"
+	"runtime/trace"
 	"sync"
 	"text/tabwriter"
 
@@ -68,13 +68,13 @@ func main() {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', tabwriter.AlignRight)
 	defer w.Flush()
 
-	cpuFile, err := os.Create("cpu.prof")
+	cpuFile, err := os.Create("wc.trace")
 	handle(err)
 	defer cpuFile.Close()
-	defer pprof.StopCPUProfile()
+	defer trace.Stop()
 
-	if err := pprof.StartCPUProfile(cpuFile); err != nil {
-		fmt.Println("could not start CPU profile: ", err)
+	if err := trace.Start(cpuFile); err != nil {
+		fmt.Println("could not tracing: ", err)
 		os.Exit(1)
 	}
 
@@ -118,9 +118,9 @@ func countFile(filename string) Chunk {
 	}
 
 	var wg sync.WaitGroup
+	wg.Add(len(chunks))
 
 	for i := 0; i < len(chunks); i++ {
-		wg.Add(1)
 		go func(index int) {
 			chnkptr := &chunks[index]
 			/*

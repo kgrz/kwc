@@ -60,3 +60,15 @@ Learnings:
     * carriage return (13) \r
     * non breaking space (0xA0)
     * next line character (0x85)
+
+
+Questions:
+---------
+
+1. Is there a difference (performance-wise) between setting the
+   WaitGroup count upfront when creation, vs using `wg.Add()` inside the
+   loop.
+2. How does using 3 cores on a 4 core machine help? Naive answer is it
+   lets OS do things better. But what I need to check is how does the
+   scheduling change if I leave one core for rest of the things, or will
+   there even be such a difference in the first place.

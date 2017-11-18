@@ -183,9 +183,10 @@ func processStream(s *bufio.Scanner) Chunk {
 // function for buffered, chunked reading
 func processBuffer(chunk *Chunk, f *os.File) {
 	leftOverBytes := int(chunk.size % BufferSize)
+	anyLeftOverBytes := leftOverBytes > 0
 
 	runs := int(chunk.size / BufferSize)
-	if leftOverBytes > 0 {
+	if anyLeftOverBytes {
 		runs++
 	}
 
@@ -194,11 +195,11 @@ func processBuffer(chunk *Chunk, f *os.File) {
 	buf := make([]byte, bufSize)
 
 	for index := 0; index < runs; index++ {
-		if index == runs-1 && leftOverBytes > 0 {
+		if anyLeftOverBytes && index == runs-1 {
 			// if it's the last run, resize the buffer to be just the amount of
 			// left over bytes
+			buf = buf[0:leftOverBytes]
 			bufSize = leftOverBytes
-			buf = make([]byte, leftOverBytes)
 		}
 
 		// setting up initial state for the first run of this chunk
